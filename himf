@@ -1,0 +1,893 @@
+#!/bin/bash
+###############################################################################
+#                                                                             #
+#                         H I M F - Hide In Media File                        #
+#          ---------------------------------------------------------          #
+#           Verstecken einer beliebigen Datei in einer Medien-Datei           #
+#                                                                             #
+#                       (C)opyright bei Michael Gasbers                       #
+#                      MIGANO Professional Web Solutions                      #
+#                                                                             #
+#                             All rights reserved.                            #
+#                                                                             #
+###############################################################################
+#                                                                             #
+# DIESE SOFTWARE WIRD OHNE MÄNGELGEWÄHR UND OHNE JEGLICHE AUSDRÜCKLICHE ODER  #
+# STILLSCHWEIGENDE GARANTIE ZUR VERFÜGUNG GESTELLT, EINSCHLIESSLICH UND OHNE  #
+# EINSCHRÄNKUNG JEGLICHER GARANTIE FÜR DIE GEBRAUCHSTAUGLICHKEIT ODER EIGNUNG #
+# FÜR EINEN BESTIMMTEN ZWECK. ALLE RISIKEN IN BEZUG AUF ERGEBNISSE UND        #
+# LEISTUNG DIESER SOFTWARE WERDEN VOLLSTÄNDIG VOM BENUTZER ÜBERNOMMEN!        #
+#  *************************************************************************  #
+# THIS SOFTWARE IS PROVIDED "AS IS" WITH NO WARRANTIES WHAT SO EVER, WHETHER  #
+# EXPRESSED OR IMPLIED, INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF       #
+# USABILITY OR FITNESS FOR A PARTICULAR PURPOSE. ALL RISKS CONCERNING RESULTS #
+# AND PERFORMANCE OF THIS SOFTWARE ARE ASSUMED COMPLETELY BY THE USER!        #
+#                                                                             #
+###############################################################################
+#                                                                             #
+#  Jegliche Form der Kopie, Veränderung und kommerziellen Verbreitung dieses  #
+#  Scripts oder Teilen davon sowie des Quellcodes ist strengstens verboten!   #
+#  *************************************************************************  #
+#   Any form of copying, modification or commercial distribution of this      #
+#   script or any part thereof or it's sourcecode is strictly prohibited!     #
+#  *************************************************************************  #
+#   Für Anregungen und Fragen nehmen Sie bitte Kontakt mit uns auf über       #
+#   https://migano.de oder per E-Mail an >> kontakt@migano.de <<. Danke.      #
+#                                                                             #
+###############################################################################
+VERSION="1.00 beta"
+# Letzte Änderung: 07.07.2022
+###############################################################################
+# =============================================================================
+# Argumente einlesen und Werte der Variablen initialisieren
+# =============================================================================
+# -----------------------------------------------------------------------------
+# Steuerungs-Variablen
+# -----------------------------------------------------------------------------
+ACTION_TYPE=""   # Aktions-Nodus (wird nachstehend automatisch gesetzt)
+arg_anzahl=${#@} # Anzahl der beim Aufruf angegebenen Argumente
+arg_counter=0
+for arg in ${@};
+do
+  arg_test="$(echo -n "$arg" | tr A-Z a-z 2>/dev/null | sed 's/[^a-z]//g' 2>/dev/null | xargs)"
+  case $arg_test in
+    a) ACTION_TYPE="a"; ((arg_counter+=1)) ;;
+    h) ACTION_TYPE="h"; ((arg_counter+=1)) ;;
+    r) ACTION_TYPE="r"; ((arg_counter+=1)) ;;
+    x) ACTION_TYPE="x"; ((arg_counter+=1)) ;;
+  esac
+done
+
+# -----------------------------------------------------------------------------
+# Dateinamen
+# -----------------------------------------------------------------------------
+# Eigener Name
+SCRIPT_NAME="${0##*/}"
+((arg_counter+=1))
+# Quell-Datei, in welcher die zweite Datei versteckt werden soll
+SOURCE_FILE="$(printf '%q' "${!arg_counter}" | xargs 2>/dev/null)"
+((arg_counter+=1))
+# Zu versteckende Datei
+SECRET_FILE="$(printf '%q' "${!arg_counter}" | xargs 2>/dev/null)"
+((arg_counter+=1))
+# Optional: Name der zu erstellenden Ziel-Datei
+# (sonst wird der Quell-Datei-Name verwendet und diesem ein _x hinzugefügt)
+TARGET_FILE="$(printf '%q' "${!arg_counter}" | xargs 2>/dev/null)"
+# Ziel-Datei bestehend aus der Quell-Datei und der darin versteckten Datei
+# (die ursprüngliche Quell-Datei bleibt unverändert)
+SOURCE_FILE_NAME="${SOURCE_FILE##*\/}"
+SOURCE_FILE_PATH="${SOURCE_FILE//$SOURCE_FILE_NAME/}"
+SOURCE_FILE_TYPE="${SOURCE_FILE_NAME##*.}"
+if [ "$TARGET_FILE" = "" ];
+then
+  TARGET_FILE="$SOURCE_FILE_PATH"
+  TARGET_FILE+="${SOURCE_FILE_NAME//\.$SOURCE_FILE_TYPE/}"
+  TARGET_FILE+="_x."
+  TARGET_FILE+="$SOURCE_FILE_TYPE"
+fi
+SOURCE_FILE_TYPE="$(echo -n "$SOURCE_FILE_TYPE" | tr A-Z a-z 2>/dev/null | xargs)"
+
+# Temporäre Datei zum Zwischenspeichern von Daten
+THE_TMP_FILE="$SOURCE_FILE_PATH"
+THE_TMP_FILE+="$SCRIPT_NAME"
+THE_TMP_FILE+="_data.tmp"
+
+# -----------------------------------------------------------------------------
+# Wenn kein Aktions-Modus angegeben wurde, diesen automatisch antizipieren ...
+# Das ermöglicht die einfache Eingabe nur der Dateinamen ohne Modus ;o)
+# -----------------------------------------------------------------------------
+if [ "$ACTION_TYPE" = "" ] &&
+   [ "$SOURCE_FILE_NAME" != "" ];
+then
+  if [ "$SECRET_FILE" = "" ];
+  then
+    ACTION_TYPE="x"
+  else
+    ACTION_TYPE="a"
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# Farben
+# -----------------------------------------------------------------------------
+# Text normal
+black='\033[0;30m'
+red='\033[0;31m'
+green='\033[0;32m'
+yellow='\033[0;33m'
+blue='\033[0;34m'
+purple='\033[0;35m'
+cyan='\033[0;36m'
+white='\033[0;97m'
+# Text hell
+dark_grey='\033[0;90m'
+light_red='\033[0;91m'
+light_green='\033[0;92m'
+light_yellow='\033[0;93m'
+light_blue='\033[0;94m'
+light_purple='\033[0;95m'
+light_cyan='\033[0;96m'
+light_grey='\033[0;37m'
+# Text fett
+bold_black='\033[1;30m'
+bold_red='\033[1;31m'
+bold_green='\033[1;32m'
+bold_yellow='\033[1;33m'
+bold_blue='\033[1;34m'
+bold_purple='\033[1;35m'
+bold_cyan='\033[1;36m'
+bold_white='\033[1;37m'
+bg_blue='\033[44m'
+colors_off='\033[0m'
+# Linienfarbe
+line_color='\033[0;90m'
+
+# -----------------------------------------------------------------------------
+# Textbausteine
+# -----------------------------------------------------------------------------
+ACHTUNG_TAG="${bold_red}Achtung${colors_off}"
+ERROR_TAG="${bold_red}Fehler${colors_off}"
+HINWEIS_TAG="${bold_blue}Hinweis${colors_off}"
+OK_TAG="${bold_green}ok${colors_off}"
+
+###############################################################################
+# Funktion zur einfachen Ja/Nein-Abfrage
+# Rückgaben: 0 = false (Nein)
+#            1 = true (Ja)
+###############################################################################
+function ask_yes_or_no () {
+  echo -e -n " $1 [${bold_yellow}j${colors_off}]a oder [${bold_yellow}n${colors_off}]ein? "
+  IYN_RESULT=0
+  ANSWER=""
+  while [ "$ANSWER" = "" ];
+  do
+    read -N 1 -r -s ANSWER
+    ANSWER=$(echo $ANSWER | sed 's/[^JjNn]*//g')
+  done
+  echo -e "$ANSWER"
+  if [ "$ANSWER" = "J" ] ||
+     [ "$ANSWER" = "j" ];
+  then
+    IYN_RESULT=1
+  fi
+  return $IYN_RESULT
+}
+
+###############################################################################
+# Funktion zur Prüfung eines Dateinamens (verwendet clean_filename)
+###############################################################################
+function check_filename () {
+  TEST_FILE_NAME="$(clean_filename "$1")"
+  if [ "$TEST_FILE_NAME" = "$1" ];
+  then
+    return 0
+  else
+    PRERUN_ERROR="Der Dateiname \"${blue}$1${colors_off}\" enthält folgende ungültige Zeichen: "
+    BAD_CHARS="$(diff <(fold -w1 <<< "$1") <(fold -w1 <<< "$TEST_FILE_NAME") | awk '/[<>]/{printf $2}')"
+    PRERUN_ERROR+="\"${bold_red}$BAD_CHARS${colors_off}\""
+    return 1
+  fi
+}
+
+###############################################################################
+# Funktion zur Prüfung und ggf. Installation eines benötigten Programmpakets
+###############################################################################
+function check_required () {
+  if [ $(LANG=en dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -i -c -E "ok installed") -eq 0 ];
+  then
+    INST_RESULT=1
+    if [ $(apt list "$1" 2>/dev/null | grep -i -c -E "$1") -gt 0 ];
+    then
+      echo -e " Installiere ${blue}$1${colors_off}, bitte warten ..."
+      sudo apt install "$1" -y
+      INST_RESULT=$?
+    fi
+    if [ $INST_RESULT -ne 0 ];
+    then
+      echo -e " $ERROR_TAG: Das benötigte Paket ${blue}$1${colors_off} konnte nicht installiert werden."
+      echo -e "         Die Ausführung dieses Skripts wird daher jetzt beendet."
+      exit 1
+    fi
+  fi
+}
+
+###############################################################################
+# Funktion zur Bereinigung eines Dateinamens um das verwendete Trennzeichen
+# und alle unter UNIX nicht verwendbaren Zeichen (Windows kann viel weniger :)
+# ACHTUNG: "-" escaped und/oder als LETZTES, damit es keinen Bereich festlegt!
+###############################################################################
+function clean_filename () {
+  WORKING_TEXT="$1"
+  WORKING_TEXT="$(echo "$WORKING_TEXT" | sed 's/\|//g')"
+  WORKING_TEXT="$(echo "$WORKING_TEXT" | tr -c -d " a-zA-Z0-9öäüÖÄÜßáàéèíìóòúù\!\"\§\$\%\&\(\)\=\?\'\`\{\[\]\}\+\*\~\'\#\,\;\.\:\_\-")"
+  echo -e -n "$WORKING_TEXT"
+}
+
+###############################################################################
+# Funktion zur Umwandlung von Umlauten (IN DIESEM SCRIPT NICHT VERWENDET)
+###############################################################################
+function convert_umlaute () {
+  echo -e -n "$1" | sed -e's/ä/ae/g' -e's/ö/oe/g' -e's/ü/ue/g' -e's/Ä/Ae/g' -e's/Ö/Oe/g' -e's/Ü/Ue/g' -e's/ß/ss/g' 2>/dev/null
+}
+
+###############################################################################
+# Funktion zum Zählen derjenigen Zeichen in einem Text, welche im Gegensatz zu
+# anderen Zeichen mit zwei Bytes statt nur mit einem Byte gespeichert werden
+###############################################################################
+function count_double_byte_chars () {
+  WORKING_TEXT="$1"
+  LENGTH_1=${#WORKING_TEXT}
+  DOUBLE_BYTE_CHARS=0
+  UMLAUTE="ö ä ü Ö Ä Ü ß á à é è í ì ó ò ú ù §"
+  for uml in $UMLAUTE;
+  do
+   WORKING_TEXT="${WORKING_TEXT//${uml}/}"
+  done
+  LENGTH_2=${#WORKING_TEXT}
+  ((DOUBLE_BYTE_CHARS=LENGTH_1 - LENGTH_2))
+  echo -e -n "$DOUBLE_BYTE_CHARS"
+}
+
+###############################################################################
+# Funktion zur Erzeugung eines Textes aus zufälligen Buchstaben/ASCII-Zeichen
+# ACHTUNG: Das Trennzeichen | sowie < und > werden bewusst nicht verwendet!
+###############################################################################
+function create_random_string () {
+  echo -e -n "$(cat /dev/urandom | tr -c -d 'a-zA-Z0-9 \!\"\§\$\%\&\(\)\=\?\{\[\]\}\+\*\~\#\,\;\.\:\_\-' | head -c $1)"
+}
+
+###############################################################################
+# Funktion zur Ermittlung verschiedener Informationen einer Datei
+# Die Werte werden in FILE_INFO_STRING gespeichert und durch | getrennt
+# Für die Summe sind den Byte-Angaben je 1 Byte hinzuzufügen (Trennzeichen)
+###############################################################################
+function get_file_infos () {
+  FILE_TO_PROCESS="$1"
+  FILE_INFO_STRING=""
+  if [ -f "$FILE_TO_PROCESS" ];
+  then
+    FILE_INFO_SIZE="$(stat -c %s "$1")"  # Dateigröße
+    FILE_INFO_TIMA="$(stat -c %X "$1")"  # Datum des letzen Zugriffs (access)
+    FILE_INFO_TIMM="$(stat -c %Y "$1")"  # Datum der letzen Änderung (modify)
+    FILE_INFO_UGOR="$(stat -c %a "$1")"  # Zugriffsrechte
+    FILE_INFO_STRING+="$FILE_INFO_SIZE|" # kalkulat. maximal 15 Bytes (1 PB)
+    FILE_INFO_STRING+="$FILE_INFO_TIMA|" # 10 Bytes
+    FILE_INFO_STRING+="$FILE_INFO_TIMM|" # 10 Bytes
+    FILE_INFO_STRING+="$FILE_INFO_UGOR|" # 3 Bytes
+    # Dateiname maximal 256 Zeichen, plus Platz für 2. Byte für 181 Umlaute
+    FILE_INFO_STRING+="${FILE_TO_PROCESS##*\/}|" # bis zu 437 Bytes
+    # => In Summe kalkulatorisch max. 480 Zeichen für den vollen Info-String!
+    # ---------------------------------
+    # NUR ZUM TESTEN
+    # echo -e "---------------------"
+    # echo -e "F: $FILE_TO_PROCESS"
+    # echo -e "S: $FILE_INFO_SIZE"
+    # echo -e "X: $FILE_INFO_TIMA"
+    # echo -e "Y: $FILE_INFO_TIMM"
+    # echo -e "R: $FILE_INFO_UGOR"
+    # echo -e "=> $FILE_INFO_STRING"
+    # echo -e "---------------------"
+    # ---------------------------------
+    return 0
+  else
+    return 1
+  fi
+}
+
+###############################################################################
+# Funktion zum Löschen einer bestimmten einzelnen Datei
+###############################################################################
+function remove_file () {
+  if [ -f "$1" ];
+  then
+    rm -f "$1" &>/dev/null
+  fi
+}
+
+###############################################################################
+# Funktion zur Verschleierung (NICHT Verschlüsselung) von ASCII-Text
+# Parameter
+# $1 : Zu ver- oder entschleiernder Text
+# $2 : 0 = verschleiern, 1 = entschleiern
+###############################################################################
+function string_scrambler () {
+  THE_ASCII_CHARS="abc\!def\"\$ghi\%jkl\&mno\(pqr\)stu\=vwx\?yz \{ABC\[DEF\]GHI\}JKL\+MNO\*PQR\~STU\#VWX\|\,YZ0\;123\.456\:789\_\-"
+  THE_SCRAMBLE_CHARS="$THE_ASCII_CHARS"
+  SCRAMBLE_SHIFT_LENGTH=${#THE_ASCII_CHARS}
+  ((SCRAMBLE_SHIFT_LENGTH-=1))
+  SHIFT_COUNTS=$((SCRAMBLE_SHIFT_LENGTH / 2))
+  i=0
+  while [ $i -lt $SHIFT_COUNTS ];
+  do
+    FIRST_PART=${THE_SCRAMBLE_CHARS:0:1}
+    SECOND_PART=${THE_SCRAMBLE_CHARS:1:SCRAMBLE_SHIFT_LENGTH}
+    THE_SCRAMBLE_CHARS="$SECOND_PART$FIRST_PART"
+    ((i+=1))
+  done
+  # Verschleiern
+  if [ $2 -eq 0 ];
+  then
+    echo -e -n "$1" | tr "$THE_ASCII_CHARS" "$THE_SCRAMBLE_CHARS" 2>/dev/null
+  fi
+  # Entschleiern
+  if [ $2 -eq 1 ];
+  then
+    echo -e -n "$1" | tr "$THE_SCRAMBLE_CHARS" "$THE_ASCII_CHARS" 2>/dev/null
+  fi
+}
+
+###############################################################################
+# Start des Haupt-Teils
+###############################################################################
+PRERUN_ERROR=""
+# -----------------------------------------------------------------------------
+# Prüfung ob eine gültige Aktion angegeben oder antizipiert wurde
+# -----------------------------------------------------------------------------
+if [ "$ACTION_TYPE" != "a" ] &&
+   [ "$ACTION_TYPE" != "r" ] &&
+   [ "$ACTION_TYPE" != "x" ];
+then
+  ACTION_TYPE="h"
+fi
+
+# -----------------------------------------------------------------------------
+# Prüfung ob die Dateinamen gültig sind
+# -----------------------------------------------------------------------------
+if [ "$ACTION_TYPE" = "a" ];
+then
+  check_filename "$SECRET_FILE"
+  if [ $? -eq 0 ];
+  then
+    check_filename "$SOURCE_FILE"
+    if [ $? -eq 0 ];
+    then
+      check_filename "$TARGET_FILE"
+    fi
+  fi
+fi
+if [ "$ACTION_TYPE" = "r" ] ||
+   [ "$ACTION_TYPE" = "x" ];
+then
+  check_filename "$SOURCE_FILE"
+fi
+
+# -----------------------------------------------------------------------------
+# Prüfung der benötigten Programmpakete
+# -----------------------------------------------------------------------------
+if [ "$PRERUN_ERROR" = "" ];
+then
+  check_required "ccrypt"
+  check_required "p7zip-full"
+fi
+
+# -----------------------------------------------------------------------------
+# Weitere Prüfungen je nach Aktions-Modus
+# -----------------------------------------------------------------------------
+if [ "$PRERUN_ERROR" = "" ];
+then
+
+  # ---------------------------------------------------------------------------
+  # Prüfungen vor dem Verstecken einer Datei
+  # ---------------------------------------------------------------------------
+  if [ "$ACTION_TYPE" = "a" ];
+  then
+
+    if [ "$SOURCE_FILE_NAME" != "" ] &&
+       [ ! -f "$SOURCE_FILE" ];
+    then
+      PRERUN_ERROR="Die Quell-Datei \"${blue}$SOURCE_FILE${colors_off}\" existiert nicht"
+    fi
+
+    if [ "$SECRET_FILE" != "" ] &&
+       [ ! -f "$SECRET_FILE" ];
+    then
+      PRERUN_ERROR="Die zu versteckende Datei \"${blue}$SECRET_FILE${colors_off}\" existiert nicht"
+    fi
+
+    if [ -d "$TARGET_FILE" ] ||
+       [ -L "$TARGET_FILE" ];
+    then
+      PRERUN_ERROR="Die Angabe der Ziel-Datei \"${blue}$TARGET_FILE${colors_off}\" ist nicht gültig"
+    fi
+
+    if [ "$TARGET_FILE" = "$SOURCE_FILE" ];
+    then
+      PRERUN_ERROR="Die Ziel-Datei darf nicht die Quell-Datei sein"
+    fi
+
+    if [ "$SOURCE_FILE_NAME" = "" ] ||
+       [ "$SECRET_FILE" = "" ];
+    then
+      PRERUN_ERROR="Angabe einer Datei fehlt"
+    fi
+
+    if [ "$SOURCE_FILE" != "" ] &&
+       [ ! -d "$SOURCE_FILE" ] &&
+       [ "$SECRET_FILE" != "" ] &&
+       [ ! -d "$SECRET_FILE" ];
+    then
+      if [ $(stat -c %s "$SECRET_FILE") -gt $(stat -c %s "$SOURCE_FILE") ];
+      then
+        PRERUN_ERROR="Die zu versteckende Datei darf nicht größer sein als die Quell-Datei"
+      fi
+    fi
+
+    FILE_TYPE_OK=0
+    if [ "$SOURCE_FILE_NAME" != "" ] &&
+       [ "$SOURCE_FILE_TYPE" != "" ];
+    then
+      FTYPE_LIST=(7z bmp doc gif flv jpg jpeg mov mp3 mp4 odp ods odt pdf png ppt xls zip)
+      for ftype in ${FTYPE_LIST[@]};
+      do
+        if [ "$SOURCE_FILE_TYPE" = "$ftype" ];
+        then
+          FILE_TYPE_OK=1
+          break
+        fi
+      done
+    fi
+    if [ $FILE_TYPE_OK -eq 0 ];
+    then
+      PRERUN_ERROR="Eine Datei im Format ${bold_red}$SOURCE_FILE_TYPE${colors_off} kann nicht als Quell-Datei verwendet werden"
+    fi
+
+  fi
+
+  # ---------------------------------------------------------------------------
+  # Prüfungen vor dem Extrahieren einer Datei
+  # ---------------------------------------------------------------------------
+  if [ "$ACTION_TYPE" = "r" ] ||
+     [ "$ACTION_TYPE" = "x" ];
+  then
+    if [ "$SOURCE_FILE_NAME" = "" ];
+    then
+      PRERUN_ERROR="Die Angabe einer Datei fehlt"
+    else
+      if [ ! -f "$SOURCE_FILE" ];
+      then
+        PRERUN_ERROR="Die Datei \"${blue}$SOURCE_FILE${colors_off}\" wurde nicht gefunden"
+      fi
+      if [ -d "$SOURCE_FILE" ];
+      then
+        PRERUN_ERROR="\"${blue}$SOURCE_FILE${colors_off}\" ist keine gültige Quell-Datei"
+      fi
+    fi
+  fi
+
+fi
+
+# -----------------------------------------------------------------------------
+# Wenn es einen Fehler gab, dann keine Aktion durchführen und Syntax anzeigen
+# -----------------------------------------------------------------------------
+if [ "$PRERUN_ERROR" != "" ];
+then
+  ACTION_TYPE="h"
+fi
+
+RUNTIME_ERROR=""
+# =============================================================================
+# Datei verstecken
+# =============================================================================
+if [ "$ACTION_TYPE" = "a" ];
+then
+  DO_ENCRYPT=1
+  if [ -f "$TARGET_FILE" ];
+  then
+    echo -e " $ACHTUNG_TAG: Die Datei \"${blue}$TARGET_FILE${colors_off}\" ist schon vorhanden!"
+    ask_yes_or_no "Soll die Datei überschrieben werden"
+    DO_ENCRYPT=$?
+  fi
+  if [ $DO_ENCRYPT -eq 1 ];
+  then
+    # -------------------------------------------------------------------------
+    # Kopie der Quell-Datei als Basis für die Ziel-Datei erstellen
+    # -------------------------------------------------------------------------
+    remove_file "$TARGET_FILE"
+    cp -f "$SOURCE_FILE" "$TARGET_FILE"
+    # -------------------------------------------------------------------------
+    # Nur weitermachen, wenn es die Ziel-Datei auch gibt
+    # -------------------------------------------------------------------------
+    if [ -f "$TARGET_FILE" ];
+    then
+      FILE_ERROR_TEXT="Die zu versteckende Datei konnte nicht"
+      # -----------------------------------------------------------------------
+      # Die zu versteckende Datei mit 7z maximal komprimieren und dabei
+      # eine temporäre Kopie erstellen, mit welcher weiter gearbeitet wird
+      # -----------------------------------------------------------------------
+      7z a -mx=9 -y "$THE_TMP_FILE" "$SECRET_FILE" &>/dev/null
+      # -----------------------------------------------------------------------
+      # Wenn die Komprimierung erfolgreich war, die Datei zudem verschlüsseln
+      # -----------------------------------------------------------------------
+      if [ $? -eq 0 ];
+      then
+        ccrypt -e -P " Bitte Passwort eingeben: " "$THE_TMP_FILE"
+        # ---------------------------------------------------------------------
+        # Wenn die Verschlüsselung erfolgreich war, die (nun komprimierte und
+        # verschlüsselte) zu versteckende Datei der temporären Datei anhängen
+        # ---------------------------------------------------------------------
+        if [ $? -eq 0 ];
+        then
+          THE_TMP_FILE+=".cpt" # ccrypt hängt der komprimierten Datei ein .cpt an
+          cat "$THE_TMP_FILE" >> "$TARGET_FILE"
+          # -------------------------------------------------------------------
+          # Nur weitermachen, wenn die Datei wirklich angehängt werden konnte
+          # -------------------------------------------------------------------
+          if [ $? -eq 0 ];
+          then
+            # -----------------------------------------------------------------
+            # Weitere Zusatz-Informationen erstellen
+            # Die Zusatz-Informationen bestehen aus (in Summe genau 1024 Bytes):
+            # - Daten zur ursprünglichen Quell-Datei (480 Bytes)
+            # - Daten zu der zu versteckenden Datei (480 Bytes)
+            # - Prüfsumme zu allen vorstehenden Daten (64 Bytes)
+            # -----------------------------------------------------------------
+            # Daten der ursprünglichen Quell-Datei
+            # -------------------------------------
+            get_file_infos "$SOURCE_FILE" # => FILE_INFO_STRING
+            SOURCE_FILE_INFOS="$FILE_INFO_STRING"
+            # echo -e "CALC PF:$SOURCE_FILE_INFOS:" # NUR ZUM TESTEN
+            # ---------------------------------
+            # Daten der zu versteckenden Datei
+            # ---------------------------------
+            get_file_infos "$SECRET_FILE" # => FILE_INFO_STRING
+            SECRET_FILE_INFOS="$FILE_INFO_STRING"
+            # echo -e "CALC SF:$SECRET_FILE_INFOS:" # NUR ZUM TESTEN
+            # ----------
+            # Prüfsumme
+            # ----------
+            FILE_INFO_SHASUM="$(echo -e -n "$SOURCE_FILE_INFOS $SECRET_FILE_INFOS" | shasum -a 256)"
+            FILE_INFO_SHASUM=${FILE_INFO_SHASUM%% *}
+            # echo -e "CALC CS:$FILE_INFO_SHASUM:" # NUR ZUM TESTEN
+            # -----------------------------------------------------------------
+            # Zusatz-Informationen verschleiern und der Datei anhängen
+            # -----------------------------------------------------------------
+            # Daten der ursprünglichen Quell-Datei
+            # -------------------------------------
+            SOURCE_FILE_INFOS=$(string_scrambler "$SOURCE_FILE_INFOS" 0)
+            STRING_LENGTH=${#SOURCE_FILE_INFOS}
+            TWO_BYTES_CHARS=$(count_double_byte_chars "$SOURCE_FILE_INFOS")
+            # echo -e "TB: $TWO_BYTES_CHARS" # NUR ZUM TESTEN
+            ANZ_SPACES=$((480 - $STRING_LENGTH - $TWO_BYTES_CHARS))
+            RANDOM_STRING=$(create_random_string $ANZ_SPACES)
+            SOURCE_FILE_INFOS+="$RANDOM_STRING"
+            echo -e -n "$SOURCE_FILE_INFOS" >> "$TARGET_FILE"
+            # ---------------------------------
+            # Daten der zu versteckenden Datei
+            # ---------------------------------
+            SECRET_FILE_INFOS=$(string_scrambler "$SECRET_FILE_INFOS" 0)
+            STRING_LENGTH=${#SECRET_FILE_INFOS}
+            TWO_BYTES_CHARS=$(count_double_byte_chars "$SECRET_FILE_INFOS")
+            # echo -e "TB: $TWO_BYTES_CHARS" # NUR ZUM TESTEN
+            ANZ_SPACES=$((480 - $STRING_LENGTH - $TWO_BYTES_CHARS))
+            RANDOM_STRING=$(create_random_string $ANZ_SPACES)
+            SECRET_FILE_INFOS+="$RANDOM_STRING"
+            echo -e -n "$SECRET_FILE_INFOS" >> "$TARGET_FILE"
+            # ----------
+            # Prüfsumme
+            # ----------
+            FILE_INFO_SHASUM=$(string_scrambler "$FILE_INFO_SHASUM" 0)
+            echo -e -n "$FILE_INFO_SHASUM" >> "$TARGET_FILE"
+
+            # -------------------------------
+            # NUR ZUM TESTEN
+            # echo -e "-----------------------------------------"
+            # echo -e "SAVE PF: $SOURCE_FILE_INFOS"
+            # echo -e "CTRL PF: $(string_scrambler "$SOURCE_FILE_INFOS" 1)"
+            # echo -e ""
+            # echo -e "SAVE SF: $SECRET_FILE_INFOS"
+            # echo -e "CTRL SF: $(string_scrambler "$SECRET_FILE_INFOS" 1)"
+            # echo -e ""
+            # echo -e "SAVE CS: $FILE_INFO_SHASUM"
+            # echo -e "CTRL CS: $(string_scrambler "$FILE_INFO_SHASUM" 1)"
+            # echo -e "-----------------------------------------"
+            # echo -e ""
+            # -------------------------------
+
+            # -----------------------------------------------------------------
+            echo -e " Die Datei \"${blue}$SECRET_FILE${colors_off}\" wurde in der Datei \"${blue}$TARGET_FILE${colors_off}\" versteckt ... $OK_TAG"
+          else
+            RUNTIME_ERROR="$FILE_ERROR_TEXT hinzugefügt werden"
+          fi
+        else
+          RUNTIME_ERROR="$FILE_ERROR_TEXT verschlüsselt werden"
+        fi
+      else
+        RUNTIME_ERROR="$FILE_ERROR_TEXT komprimiert werden"
+      fi
+      # -----------------------------------------------------------------------
+      # Aufräumen (temporäre Dateien und bei Fehler auch Ziel-Datei löschen)
+      # -----------------------------------------------------------------------
+      remove_file "$THE_TMP_FILE"
+      if [ "$RUNTIME_ERROR" != "" ];
+      then
+        remove_file "${THE_TMP_FILE//\.cpt/}"
+        remove_file "$TARGET_FILE"
+      fi
+    else
+      RUNTIME_ERROR="Die Ziel-Datei kann nicht erstellt werden"
+    fi
+  fi
+fi
+
+# =============================================================================
+# Versteckte Datei extrahieren
+# =============================================================================
+if [ "$ACTION_TYPE" = "r" ] ||
+   [ "$ACTION_TYPE" = "x" ];
+then
+  # ---------------------------------------------------------------------------
+  # Die letzten 1024 Byte der Quell-Datei mit den darin gespeicherten Infos
+  # zu den ursprünglichen Dateien als "tmp_chunk_ab" absplitten und einlesen
+  # ACHTUNG: Reihenfolge und Feldlängen nicht oder nur ganz bewusst ändern!!!
+  # ---------------------------------------------------------------------------
+  CURRENT_SIZE=$(stat -c %s "$SOURCE_FILE")
+  SPLIT_SIZE=$(($CURRENT_SIZE - 1024))
+  split -a 2 -b ${SPLIT_SIZE} "$SOURCE_FILE" "tmp_chunk_"
+  # "tmp_chunk_ab" mit tr statt cat einlesen, da dies bei 0-Bytes aufhört ;)
+  STORED_FILE_INFOS=$(tr -d '\0' < "tmp_chunk_ab")
+
+  BYTE_OFFSET=0
+  # -------------------------------------
+  # Daten der ursprünglichen Quell-Datei
+  # -------------------------------------
+  FIELD_LENGTH=480
+  SOURCE_FILE_INFOS=${STORED_FILE_INFOS:BYTE_OFFSET:FIELD_LENGTH}
+  TWO_BYTES_CHARS=$(count_double_byte_chars "$SOURCE_FILE_INFOS")
+  # echo -e "TB: $TWO_BYTES_CHARS" # NUR ZUM TESTEN
+  ((FIELD_LENGTH-=TWO_BYTES_CHARS))
+  SOURCE_FILE_INFOS=$(string_scrambler "$SOURCE_FILE_INFOS" 1)
+  # echo -e "READ PF:$SOURCE_FILE_INFOS:" # NUR ZUM TESTEN
+  ((BYTE_OFFSET+=FIELD_LENGTH))
+  # ----------------------------
+  # Daten der versteckten Datei
+  # ----------------------------
+  FIELD_LENGTH=480
+  SECRET_FILE_INFOS=${STORED_FILE_INFOS:BYTE_OFFSET:FIELD_LENGTH}
+  TWO_BYTES_CHARS=$(count_double_byte_chars "$SECRET_FILE_INFOS")
+  # echo -e "TB: $TWO_BYTES_CHARS" # NUR ZUM TESTEN
+  ((FIELD_LENGTH-=TWO_BYTES_CHARS))
+  SECRET_FILE_INFOS=$(string_scrambler "$SECRET_FILE_INFOS" 1)
+  # echo -e "READ SF:$SECRET_FILE_INFOS:" # NUR ZUM TESTEN
+  ((BYTE_OFFSET+=FIELD_LENGTH))
+  # ----------
+  # Prüfsumme
+  # ----------
+  FIELD_LENGTH=64
+  FILE_INFO_SHASUM=${STORED_FILE_INFOS:BYTE_OFFSET:FIELD_LENGTH}
+  FILE_INFO_SHASUM=$(string_scrambler "$FILE_INFO_SHASUM" 1)
+  # echo -e "READ CS:$FILE_INFO_SHASUM:" # NUR ZUM TESTEN
+
+  SOURCE_FILE_SIZE=$(echo $SOURCE_FILE_INFOS | cut -d'|' -f 1)
+  SOURCE_FILE_TIMA=$(echo $SOURCE_FILE_INFOS | cut -d'|' -f 2)
+  SOURCE_FILE_TIMM=$(echo $SOURCE_FILE_INFOS | cut -d'|' -f 3)
+  SOURCE_FILE_UGOR=$(echo $SOURCE_FILE_INFOS | cut -d'|' -f 4)
+  SOURCE_FILE_NAME=$(echo $SOURCE_FILE_INFOS | cut -d'|' -f 5)
+  SOURCE_INFO_STRING=""
+  SOURCE_INFO_STRING+="$SOURCE_FILE_SIZE|"
+  SOURCE_INFO_STRING+="$SOURCE_FILE_TIMA|"
+  SOURCE_INFO_STRING+="$SOURCE_FILE_TIMM|"
+  SOURCE_INFO_STRING+="$SOURCE_FILE_UGOR|"
+  SOURCE_INFO_STRING+="$SOURCE_FILE_NAME|"
+
+  # ---------------------------------
+  # NUR ZUM TESTEN
+  # echo -e "----------------------"
+  # echo -e "S: $SOURCE_FILE_SIZE"
+  # echo -e "X: $SOURCE_FILE_TIMA"
+  # echo -e "Y: $SOURCE_FILE_TIMM"
+  # echo -e "R: $SOURCE_FILE_UGOR"
+  # echo -e "N: $SOURCE_FILE_NAME"
+  # echo -e "=> $SOURCE_INFO_STRING"
+  # echo -e "----------------------"
+  # ---------------------------------
+
+  SECRET_FILE_SIZE=$(echo $SECRET_FILE_INFOS | cut -d'|' -f 1)
+  SECRET_FILE_TIMA=$(echo $SECRET_FILE_INFOS | cut -d'|' -f 2)
+  SECRET_FILE_TIMM=$(echo $SECRET_FILE_INFOS | cut -d'|' -f 3)
+  SECRET_FILE_UGOR=$(echo $SECRET_FILE_INFOS | cut -d'|' -f 4)
+  SECRET_FILE_NAME=$(echo $SECRET_FILE_INFOS | cut -d'|' -f 5)
+  SECRET_INFO_STRING=""
+  SECRET_INFO_STRING+="$SECRET_FILE_SIZE|"
+  SECRET_INFO_STRING+="$SECRET_FILE_TIMA|"
+  SECRET_INFO_STRING+="$SECRET_FILE_TIMM|"
+  SECRET_INFO_STRING+="$SECRET_FILE_UGOR|"
+  SECRET_INFO_STRING+="$SECRET_FILE_NAME|"
+
+  # ---------------------------------
+  # NUR ZUM TESTEN
+  # echo -e "----------------------"
+  # echo -e "S: $SECRET_FILE_SIZE"
+  # echo -e "X: $SECRET_FILE_TIMA"
+  # echo -e "Y: $SECRET_FILE_TIMM"
+  # echo -e "R: $SECRET_FILE_UGOR"
+  # echo -e "N: $SECRET_FILE_NAME"
+  # echo -e "=> $SECRET_INFO_STRING"
+  # echo -e "----------------------"
+  # ---------------------------------
+
+  # ---------------------------------------------------------------------------
+  # Nach dem Einlesen der gespeicherten Infos deren neue Prüfsumme ermitteln
+  # ---------------------------------------------------------------------------
+  CHECKSUM_TEST="$(echo -e -n "$SOURCE_INFO_STRING $SECRET_INFO_STRING" | shasum -a 256)"
+  CHECKSUM_TEST="${CHECKSUM_TEST%% *}"
+  # ---------------------------------------------------------------------------
+
+  # ---------------------------
+  # NUR ZUM TESTEN
+  # echo -e "C1: ($FILE_INFO_SHASUM)"
+  # echo -e "C2: ($CHECKSUM_TEST)"
+  # echo -e ""
+  # ---------------------------
+
+  # ---------------------------------------------------------------------------
+  # Nur weitermachen, wenn die gespeicherte und die neue Prüfsumme gleich sind
+  # ---------------------------------------------------------------------------
+  if [ "$FILE_INFO_SHASUM" = "$CHECKSUM_TEST" ];
+  then
+    FILE_ERROR_TEXT="Die versteckte Datei konnte nicht"
+    DO_DECRYPT=1
+    # Wenn es die Ziel-Datei schon gibt, dann Sicherheitsabfrage
+    if [ -s "$SECRET_FILE_NAME" ];
+    then
+      echo -e " $ACHTUNG_TAG: Die Datei \"${blue}$SECRET_FILE_NAME${colors_off}\" ist schon vorhanden!"
+      ask_yes_or_no "Soll die Datei überschrieben werden"
+      DO_DECRYPT=$?
+    fi
+    if [ $DO_DECRYPT -eq 1 ] ||
+       [ "$ACTION_TYPE" = "r" ];
+    then
+      # -----------------------------------------------------------------------
+      # Nun die bereits um die Infos gekürzte Datei (tmp_chunk_aa) aufteilen in
+      # - die ursprüngliche Quell-Datei (target_file_aa) und
+      # - die darin versteckte Datei (target_file_ab)
+      # -----------------------------------------------------------------------
+      split -a 2 -b ${SOURCE_FILE_SIZE} "tmp_chunk_aa" "target_file_" 2>/dev/null
+      SPLIT_RESULT=$?
+      if [ $SPLIT_RESULT -eq 0 ];
+      then
+        # ---------------------------------------------------------------------
+        # Wenn die Datei aufgeteilt werden konnte, dann zweiten Teil (die hier
+        # noch komprimierte und verschlüsselte versteckte Datei) entschlüsseln
+        # ---------------------------------------------------------------------
+        if [ $DO_DECRYPT -eq 1 ];
+        then
+          ccrypt -d -P " Bitte Passwort eingeben: " "target_file_ab"
+          # -------------------------------------------------------------------
+          # Entpacken der nun entschlüsselten aber noch komprimierten Datei
+          # -------------------------------------------------------------------
+          if [ $? -eq 0 ];
+          then
+            7z e "target_file_ab" -y &>/dev/null
+            if [ $? -eq 0 ];
+              [ -f "$SECRET_FILE_NAME" ];
+            then
+              touch -a -d "@$SECRET_FILE_TIMA" "$SECRET_FILE_NAME" # &>/dev/null
+              touch -m -d "@$SECRET_FILE_TIMM" "$SECRET_FILE_NAME" # &>/dev/null
+              chmod "$SECRET_FILE_UGOR" "$SECRET_FILE_NAME" # &>/dev/null
+              echo -e " Die Datei \"${blue}$SECRET_FILE_NAME${colors_off}\" wurde extrahiert ... $OK_TAG"
+            else
+              RUNTIME_ERROR="$FILE_ERROR_TEXT entpackt werden"
+            fi
+          else
+            RUNTIME_ERROR="$FILE_ERROR_TEXT entschlüsselt werden"
+          fi
+        fi
+        # ---------------------------------------------------------------------
+        # Optional die ursprüngliche Quell-Datei wieder herstellen
+        # ---------------------------------------------------------------------
+        if [ "$ACTION_TYPE" = "r" ];
+        then
+          DO_RESTORE=1
+          if [ -f "$SOURCE_FILE_NAME" ];
+          then
+            echo -e " $ACHTUNG_TAG: Die Datei \"${blue}$SOURCE_FILE_NAME${colors_off}\" ist schon vorhanden!"
+            ask_yes_or_no "Soll die Datei überschrieben werden"
+            DO_RESTORE=$?
+          fi
+          if [ $DO_RESTORE -eq 1 ];
+          then
+            remove_file "$SOURCE_FILE_NAME"
+            mv -f "target_file_aa" "$SOURCE_FILE_NAME"
+            if [ $? -eq 0 ] &&
+               [ -f "$SOURCE_FILE_NAME" ];
+            then
+              touch -a -d "@$SOURCE_FILE_TIMA" "$SOURCE_FILE_NAME" # &>/dev/null
+              touch -m -d "@$SOURCE_FILE_TIMM" "$SOURCE_FILE_NAME" # &>/dev/null
+              chmod "$SOURCE_FILE_UGOR" "$SOURCE_FILE_NAME" # &>/dev/null
+            else
+              echo -e " $ERROR_TAG: Die Quell-Datei konnte nicht wieder hergestellt werden."
+            fi
+            echo -e " Die Datei \"${blue}$SOURCE_FILE_NAME${colors_off}\" wurde wieder hergestellt ... $OK_TAG"
+          else
+            remove_file "target_file_aa"
+          fi
+        fi
+        # ---------------------------------------------------------------------
+        # Aufräumen
+        # ---------------------------------------------------------------------
+        if [ "$ACTION_TYPE" = "x" ];
+        then
+          remove_file "target_file_aa"
+        fi
+        remove_file "target_file_ab"
+      else
+        RUNTIME_ERROR="$FILE_ERROR_TEXT getrennt werden"
+      fi
+    fi
+  else
+    RUNTIME_ERROR="Es wurde keine versteckte Datei gefunden" # Falsche Prüfsumme
+  fi
+  # ---------------------------------------------------------------------------
+  # Aufräumen (temporäre Dateien löschen)
+  # ---------------------------------------------------------------------------
+  remove_file "tmp_chunk_aa"
+  remove_file "tmp_chunk_ab"
+fi
+
+# =============================================================================
+# Syntax/Hilfe anzeigen
+# =============================================================================
+if [ "$ACTION_TYPE" = "h" ];
+then
+  echo -e ""
+  echo -e " $SCRIPT_NAME (Hide In Media File) v$VERSION"
+  echo -e " Verstecken einer beliebigen Datei in einer Medien-Datei"
+  echo -e " (C)opyright 2022 by Michael Gasbers"
+  echo -e ""
+  if [ "$PRERUN_ERROR" != "" ];
+  then
+    echo -e " $ERROR_TAG: $PRERUN_ERROR."
+    echo -e ""
+  fi
+  echo -e " Aufruf: $SCRIPT_NAME [<Modus>] <Quell-Datei> [<Geheim-Datei>] [<Ziel-Datei>]"
+  echo -e ""
+  echo -e " Modus:"
+  echo -e "     a  Die <Geheim-Datei> in der <Quell-Datei> verstecken, wobei eine neue"
+  echo -e "        Datei auf Basis der <Quell-Datei> mit Suffix _x erstellt wird (bzw."
+  echo -e "        wenn <Ziel-Datei> angegeben, wird diese mit diesem Namen angelegt)"
+  echo -e ""
+  echo -e "     r  Die versteckte Datei aus der <Quell-Datei> extrahieren und zudem"
+  echo -e "        auch die ursprüngliche Quell-Datei (ohne die darin versteckte"
+  echo -e "        Datei) wieder herstellen"
+  echo -e ""
+  echo -e "     x  Nur die versteckte Datei aus der <Quell-Datei> extrahieren"
+  echo -e ""
+  echo -e " Tipp: $SCRIPT_NAME erkennt auch ohne die Angabe eines Modus anhand der Anzahl"
+  echo -e " der Argumente, ob eine Datei versteckt oder extrahiert werden soll."
+  echo -e ""
+  if [ "$PRERUN_ERROR" != "" ]; then exit 1; fi
+fi
+
+# =============================================================================
+# Bei Laufzeitfehler Code 1 zurückgeben
+# =============================================================================
+if [ "$ACTION_TYPE" = "a" ] ||
+   [ "$ACTION_TYPE" = "r" ] ||
+   [ "$ACTION_TYPE" = "x" ];
+then
+  if [ "$RUNTIME_ERROR" != "" ];
+  then
+    echo -e " $ERROR_TAG: $RUNTIME_ERROR."
+    exit 1
+  fi
+fi
